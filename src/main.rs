@@ -468,9 +468,7 @@ impl App {
     }
     fn render_mercy(&mut self, frame: &mut Frame) {
         let title = Line::from(format!(" Hai ")).bold().blue().centered();
-        let text = "Hello, Ratatui!\n\n\
-            Created using https://github.com/ratatui/templates\n\
-            Press `Esc`, `Ctrl-C` or `q` to stop running.";
+        let text = "";
         let text2 = "(E) Esci (C) Continua  ";
         frame.render_widget(
             Paragraph::new(text)
@@ -521,10 +519,10 @@ impl App {
                     _ => {}
                 },
 
-                GameState::Battle => match key.code {
-                    KeyCode::Char('G') => self.game_state = GameState::Heal,
-                    KeyCode::Char('I') => self.game_state = GameState::Inventory,
-                    KeyCode::Char('W') => self.game_state = GameState::Shop,
+                GameState::Fight => match key.code {
+                    KeyCode::Char('G') => self.logic_hook(),
+                    KeyCode::Char('J') => self.logic_jab(),
+                    KeyCode::Char('M') => self.logic_montante(),
 
                     _ => {}
                 },
@@ -542,7 +540,7 @@ impl App {
                     _ => {}
                 },
 
-                GameState::Fight => match key.code {
+                GameState::Battle => match key.code {
                     KeyCode::Enter => {}
 
                     KeyCode::Left => {
