@@ -624,6 +624,12 @@ impl App {
 
     fn logic_fight(&mut self) {}
 
+    fn logic_hook(&mut self) {}
+
+    fn logic_jab(&mut self) {}
+
+    fn logic_montante(&mut self) {}
+
     fn logic_minigame(&mut self) {}
 
     fn logic_game_over(&mut self) {
