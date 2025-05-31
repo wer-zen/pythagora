@@ -43,8 +43,9 @@ pub enum GameState {
     Battle,
 }
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+#[derive(Debug, Default, PartialEq, Eq, Clone, Copy)]
 pub enum FightOption {
+    #[default]
     Attack,
     Defend,
     Inventory,
@@ -53,7 +54,7 @@ pub enum FightOption {
 #[derive(Debug, Default, PartialEq, Eq, Clone, Copy)]
 pub enum Places {
     #[default]
-    Samo,
+    Samos,
     SabbiaSamos,
     Tiro,
     ColonneTiro,
@@ -66,10 +67,12 @@ pub enum Places {
     Mileto,
 }
 
-impl Default for FightOption {
-    fn default() -> Self {
-        FightOption::Attack // Default to Attack
-    }
+#[derive(Debug, Default, PartialEq, Eq, Clone, Copy)]
+pub enum StoryState {
+    #[default]
+    First,
+    Second,
+    Third,
 }
 
 /// The main application which holds the state and logic of the application.
@@ -78,6 +81,7 @@ pub struct App {
     /// Is the application running?
     running: bool,
     pub game_state: GameState,
+    pub story_state: StoryState,
     pub counter: u32,
     pub player_strength: f64,
     pub player_dmg: f64,
@@ -85,7 +89,7 @@ pub struct App {
     pub player_def: f64,
     pub player_xp: f64,
     pub player_lvl: f64,
-    pub player_player_place: String,
+    pub player_player_place: Places,
     pub player_heal_value: f64,
     pub player_heal_factor: f64,
     pub player_xp_factor: f64,
@@ -95,7 +99,8 @@ pub struct App {
     pub enemy_strength: f64,
     pub enemy_dmg: f64,
     pub enemy_strength_factor: f64,
-    pub enemy_heal: f64, // <--- NEW FIELD
+    pub enemy_heal: f64,
+    pub enemy_is_alive: bool, // <--- NEW FIELD
 }
 
 #[allow(deprecated)]
@@ -105,16 +110,20 @@ impl App {
     pub fn new() -> Self {
         Self {
             // Initialize player health
-            player_health: 100.0,  // Initialize enemy health
-            player_strength: 10.0, // Example initial values
+            player_health: 100.0, // Initialize enemy health
+            player_strength: 1.0, // Example initial values
             player_dmg: 15.0,
             player_def: 5.0,
             player_xp: 0.0,
             player_lvl: 1.0,
-            player_player_place: "Samo".to_string(),
+            player_player_place: Places::Samos,
             player_heal_value: 20.0,
             player_heal_factor: 1.0,
             player_xp_factor: 1.0,
+            enemy_health: 150.0,
+            enemy_strength: 1.1,
+            enemy_dmg: 10.0,
+            enemy_heal: 15.0,
 
             ..Self::default()
         }
@@ -200,7 +209,7 @@ impl App {
         // Helper to get styled text based on selection
         let get_option_style = |option: FightOption, current_selection: FightOption| {
             if option == current_selection {
-                Style::default().yellow().bold() // Highlight selected option
+                Style::default().bg(Color::Yellow).black().bold() // Highlight selected option
             } else {
                 Style::default().white()
             }
@@ -214,8 +223,8 @@ impl App {
         // ATTACK
         // ATTACK POPUP
         let popup_area_attack = Rect::new(
-            parent_area.x + parent_area.width / 4 - popup_width + 5,
-            parent_area.y + parent_area.height / 2 - popup_height + 10,
+            parent_area.x + parent_area.width / 4 - popup_width + 12 * popup_width / 40,
+            parent_area.y + parent_area.height / 2 - popup_height + 14 * popup_height / 4,
             popup_width,
             popup_height,
         );
@@ -234,8 +243,8 @@ impl App {
 
         // DEFEND POPUP
         let popup_area_defend = Rect::new(
-            parent_area.x + parent_area.width / 4 - popup_width + 24,
-            parent_area.y + parent_area.height / 2 - popup_height + 10,
+            parent_area.x + parent_area.width / 4 - popup_width + 4 * popup_width / 230 * 100,
+            parent_area.y + parent_area.height / 2 - popup_height + 14 * popup_height / 4,
             popup_width,
             popup_height,
         );
@@ -352,19 +361,44 @@ impl App {
     }
 
     fn render_inventory(&mut self, frame: &mut Frame) {
-        let title = Line::from("Ratatui Simple Template")
-            .bold()
-            .blue()
-            .centered();
-        let text = "Hello, Ratatui!\n\n\
-            Created using https://github.com/ratatui/templates\n\
-            Press `Esc`, `Ctrl-C` or `q` to stop running.";
-        frame.render_widget(
-            Paragraph::new(text)
-                .block(Block::bordered().title(title))
-                .centered(),
-            frame.area(),
-        )
+        let parent_area = frame.size();
+
+        // Calculate a smaller Rect in the middle for the inventory popup
+        let popup_width = 40;
+        let popup_height = 10; // Adjust height based on how many items you expect to display
+
+        let popup_area = Rect::new(
+            parent_area.width / 2 - popup_width / 2,
+            parent_area.height / 2 - popup_height / 2,
+            popup_width,
+            popup_height,
+        );
+
+        // Create the block for the inventory popup
+        let inventory_block = Block::bordered()
+            .title(Line::from(" Inventory ").bold().yellow())
+            .border_type(BorderType::Rounded)
+            .border_style(Style::default().fg(Color::DarkGray));
+
+        // Prepare the text for inventory items
+        let mut inventory_lines: Vec<Line> = Vec::new();
+        if self.player_inventory.is_empty() {
+            inventory_lines.push(Line::from("Your inventory is empty."));
+        } else {
+            for (i, item) in self.player_inventory.iter().enumerate() {
+                // You can add logic here to highlight selected item if you implement selection within inventory
+                inventory_lines.push(Line::from(format!("- {}", item)).white());
+            }
+        }
+        inventory_lines.push(Line::from("").white()); // Add an empty line for spacing
+        inventory_lines.push(Line::from("Press (M) to return to Main Menu.").dark_gray());
+
+        let inventory_paragraph = Paragraph::new(inventory_lines)
+            .block(inventory_block)
+            .alignment(Alignment::Center)
+            .wrap(Wrap { trim: false });
+
+        frame.render_widget(inventory_paragraph, popup_area);
     }
 
     fn render_game_over(&mut self, frame: &mut Frame) {
@@ -432,13 +466,10 @@ impl App {
             .bold()
             .blue()
             .centered();
-        let text1 = Line::from("\n Salve, Avventuriero! \n ");
-
-        let text2 = Line::from(format!("\n  Ti trovi nel menù principale.")).blue();
         let text3 = Line::from(format!("\nCosa desideri fare?")).bold();
 
         frame.render_widget(
-            Paragraph::new(text1 + text2 + text3)
+            Paragraph::new(text3)
                 .block(Block::bordered().title(title))
                 .centered(),
             frame.area(),
@@ -531,7 +562,7 @@ impl App {
                     KeyCode::Char('H') => self.game_state = GameState::Heal,
                     KeyCode::Char('V') => self.game_state = GameState::GameOver,
                     // KeyCode::Char('C') => self.game_state = GameState::Continue,
-                    KeyCode::Char('F') => self.game_state = GameState::Fight,
+                    KeyCode::Char('B') => self.game_state = GameState::Battle,
                     KeyCode::Char('M') => self.game_state = GameState::MainMenu,
 
                     _ => {}
@@ -559,7 +590,7 @@ impl App {
                             FightOption::Mercy => FightOption::Attack, // Loop from Run to Attack
                         };
                     }
-                    KeyCode::Enter | KeyCode::Char(' ') => {
+                    KeyCode::Char(' ') => {
                         // User pressed Enter or Space to select
                         match self.selected_fight_option {
                             FightOption::Attack => self.logic_attack(),
@@ -568,7 +599,7 @@ impl App {
                             FightOption::Mercy => {
                                 // Implement run logic
                                 // For now, just go back to story. You might add a success/fail chance.
-                                self.game_state = GameState::Story;
+                                self.logic_mercy();
                             }
                         }
                     }
@@ -624,7 +655,9 @@ impl App {
 
     fn logic_hook(&mut self) {}
 
-    fn logic_jab(&mut self) {}
+    fn logic_jab(&mut self) {
+        self.enemy_health = self.enemy_health - self.player_dmg * (self.player_strength / 2.0)
+    }
 
     fn logic_montante(&mut self) {}
 
