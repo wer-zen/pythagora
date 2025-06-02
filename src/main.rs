@@ -15,9 +15,11 @@ use ratatui::{
     text::Line,
     widgets::{Block, BorderType, Borders, Padding, Paragraph, Wrap},
 };
+#[allow(unused)]
 use ratatui::{style::palette::material::GRAY, symbols::border};
-use std::time::{Duration, Instant};
-use std::{cmp::Ordering, default}; // Import Instant and Duration
+use std::cmp::Ordering;
+#[allow(unused)]
+use std::time::{Duration, Instant}; // Import Instant and Duration
 
 fn main() -> color_eyre::Result<()> {
     color_eyre::install()?;
@@ -52,8 +54,16 @@ pub enum FightOption {
     Mercy,
 }
 #[derive(Debug, Default, PartialEq, Eq, Clone, Copy)]
-pub enum Places {
+pub enum ShopOption {
     #[default]
+    Buy,
+    Sell,
+    Inventory,
+    Exit,
+}
+
+#[derive(Debug, Default, PartialEq, Eq, Clone, Copy)]
+pub enum Places {
     Samos,
     SabbiaSamos,
     Tiro,
@@ -61,6 +71,7 @@ pub enum Places {
     Crotone,
     ScuolaCrotone,
     Babilonia,
+    #[default]
     BabiloniaBoss,
     Olimpia,
     Syros,
@@ -95,6 +106,7 @@ pub struct App {
     pub player_xp_factor: f64,
     pub player_inventory: Vec<String>,
     pub selected_fight_option: FightOption,
+    pub selected_shop_option: ShopOption,
     pub enemy_health: f64,
     pub enemy_strength: f64,
     pub enemy_dmg: f64,
@@ -116,7 +128,6 @@ impl App {
             player_def: 5.0,
             player_xp: 0.0,
             player_lvl: 1.0,
-            player_player_place: Places::Samos,
             player_heal_value: 20.0,
             player_heal_factor: 1.0,
             player_xp_factor: 1.0,
@@ -196,15 +207,15 @@ impl App {
             frame.area(),
         );
 
-        let attack_text = "hi".to_string();
-        let option_chunks = Layout::default()
-            .direction(Direction::Horizontal)
-            .constraints([
-                Constraint::Percentage(33),
-                Constraint::Percentage(33),
-                Constraint::Percentage(34),
-            ])
-            .split(frame.area());
+        // let attack_text = "hi".to_string();
+        // let option_chunks = Layout::default()
+        //     .direction(Direction::Horizontal)
+        //     .constraints([
+        //         Constraint::Percentage(33),
+        //         Constraint::Percentage(33),
+        //         Constraint::Percentage(34),
+        //     ])
+        //     .split(frame.area());
 
         // Helper to get styled text based on selection
         let get_option_style = |option: FightOption, current_selection: FightOption| {
@@ -462,29 +473,41 @@ impl App {
     }
 
     fn render_fight(&mut self, frame: &mut Frame) {
-        let title = Line::from(format!(" Oh No! Hai incontrato il boss "))
-            .bold()
-            .blue()
-            .centered();
-        let text3 = Line::from(format!("\nCosa desideri fare?")).bold();
-
-        frame.render_widget(
-            Paragraph::new(text3)
-                .block(Block::bordered().title(title))
-                .centered(),
-            frame.area(),
-        )
+        let title = Line::from(format!(
+            " Hai deciso di combattere il boss! Cosa intendi fare?"
+        ))
+        .bold()
+        .blue()
+        .centered();
     }
 
     fn render_shop(&mut self, frame: &mut Frame) {
-        let title = Line::from(format!(" Negozio di {} ", self.player_player_place))
+        // Determine the shop name based on the player's current place
+        let shop_name = match self.player_player_place {
+            Places::Samos => "Negozio di Samos",
+            Places::SabbiaSamos => "Bancarella nella Sabbia di Samos",
+            Places::Tiro => "Emporio di Tiro",
+            Places::ColonneTiro => "Mercato delle Colonne di Tiro",
+            Places::Crotone => "Bottega di Crotone",
+            Places::ScuolaCrotone => "Spaccio della Scuola di Crotone",
+            Places::Babilonia => "Mercante Babilonese",
+            Places::BabiloniaBoss => "Tesori del Boss di Babilonia", // Maybe a special shop after defeating the boss?
+            Places::Olimpia => "Bazar Olimpico",
+            Places::Syros => "Mercato di Syros",
+            Places::Mileto => "Bottega di Mileto",
+            // Add more cases for each `Places` variant as needed
+            _ => "Negozio Errante", // Default or fallback name if you add new places later
+        };
+
+        let title = Line::from(format!(" {} ", shop_name))
             .bold()
             .blue()
             .centered();
-        let text = "Hello, Ratatui!\n\n\
-            Created using https://github.com/ratatui/templates\n\
-            Press `Esc`, `Ctrl-C` or `q` to stop running.";
-        let text2 = "(E) Esci (C) Continua  ";
+        let text = "Benvenuto! Cosa desideri acquistare?\n\n\
+                    (W) Compra Pozione (A) Compra Arma (D) Compra Armatura\n\
+                    Premi `Esc` o `q` per uscire."; // Updated text to be more shop-like
+        let text2 = "(M) Torna al Menù Principale "; // Moved the return to main menu here for clarity
+
         frame.render_widget(
             Paragraph::new(text)
                 .block(Block::bordered().title(title))
@@ -492,9 +515,92 @@ impl App {
             frame.area(),
         );
 
+        // You might want to adjust the area for text2 so it doesn't overlap the main shop text
+        // For now, it's rendering over the same area, which might look cluttered.
+        // Consider adding a layout to split the area if you want separate sections for text and controls.
+        let get_option_style = |option: ShopOption, current_selection: ShopOption| {
+            if option == current_selection {
+                Style::default().bg(Color::Yellow).black().bold() // Highlight selected option
+            } else {
+                Style::default().white()
+            }
+        };
+
+        let parent_area = frame.area();
+
+        let popup_width = 17;
+        let popup_height = 3; // Increased height to comfortably fit message + prompt + padding
+
+        // ATTACK
+        // ATTACK POPUP
+        let popup_area_attack = Rect::new(
+            parent_area.x + parent_area.width / 4 - popup_width + 12 * popup_width / 40,
+            parent_area.y + parent_area.height / 2 - popup_height + 14 * popup_height / 4,
+            popup_width,
+            popup_height,
+        );
+        let buy_text = Line::from("COMPRA")
+            .style(get_option_style(ShopOption::Buy, self.selected_shop_option))
+            .centered();
         frame.render_widget(
-            Paragraph::new(text2).block(Block::bordered()).centered(),
-            frame.area(),
+            Paragraph::new(buy_text).block(Block::bordered()).centered(),
+            popup_area_attack,
+        );
+
+        // DEFEND POPUP
+        let popup_area_defend = Rect::new(
+            parent_area.x + parent_area.width / 4 - popup_width + 4 * popup_width / 230 * 100,
+            parent_area.y + parent_area.height / 2 - popup_height + 14 * popup_height / 4,
+            popup_width,
+            popup_height,
+        );
+        let defend_text = Line::from("MENU")
+            .style(get_option_style(
+                ShopOption::Sell,
+                self.selected_shop_option,
+            ))
+            .centered();
+        frame.render_widget(
+            Paragraph::new(defend_text)
+                .block(Block::bordered())
+                .centered(),
+            popup_area_defend,
+        );
+
+        // INVENTORY POPUP (You had a commented out inventory render previously, so adapting this)
+        let popup_area_inventory = Rect::new(
+            parent_area.x + parent_area.width / 4 - popup_width + 43,
+            parent_area.y + parent_area.height / 2 - popup_height + 10,
+            popup_width,
+            popup_height,
+        );
+        let inventory_text = Line::from("INVENTARIO")
+            .style(get_option_style(
+                // Assuming you want to associate Inventory with an existing FightOption or add a new one.
+                // For now, I'll link it to Defend as a placeholder or you might need a new enum variant.
+                // If "Inventory" isn't a FightOption, you'll need to adjust `get_option_style` or its usage.
+                ShopOption::Inventory, // Placeholder, adjust as needed. Maybe add FightOption::Inventory
+                self.selected_shop_option,
+            ))
+            .centered();
+        frame.render_widget(
+            Paragraph::new(inventory_text)
+                .block(Block::bordered())
+                .centered(),
+            popup_area_inventory,
+        );
+
+        let exit_text = Line::from("ESCI")
+            .style(get_option_style(
+                ShopOption::Exit,
+                self.selected_shop_option,
+            ))
+            .centered();
+        frame.render_widget(
+            Paragraph::new(exit_text)
+                .block(Block::bordered())
+                .centered(),
+            popup_area_defend,
         );
     }
     fn render_mercy(&mut self, frame: &mut Frame) {
@@ -551,6 +657,22 @@ impl App {
                 },
 
                 GameState::Fight => match key.code {
+                    KeyCode::Left => {
+                        self.selected_fight_option = match self.selected_fight_option {
+                            FightOption::Attack => FightOption::Mercy, // Loop from Attack to Run
+                            FightOption::Defend => FightOption::Attack,
+                            FightOption::Inventory => FightOption::Defend,
+                            FightOption::Mercy => FightOption::Inventory,
+                        };
+                    }
+                    KeyCode::Right => {
+                        self.selected_fight_option = match self.selected_fight_option {
+                            FightOption::Attack => FightOption::Defend,
+                            FightOption::Defend => FightOption::Inventory,
+                            FightOption::Inventory => FightOption::Mercy,
+                            FightOption::Mercy => FightOption::Attack, // Loop from Run to Attack
+                        };
+                    }
                     KeyCode::Char('G') => self.logic_hook(),
                     KeyCode::Char('J') => self.logic_jab(),
                     KeyCode::Char('M') => self.logic_montante(),
@@ -572,8 +694,6 @@ impl App {
                 },
 
                 GameState::Battle => match key.code {
-                    KeyCode::Enter => {}
-
                     KeyCode::Left => {
                         self.selected_fight_option = match self.selected_fight_option {
                             FightOption::Attack => FightOption::Mercy, // Loop from Attack to Run
@@ -590,7 +710,7 @@ impl App {
                             FightOption::Mercy => FightOption::Attack, // Loop from Run to Attack
                         };
                     }
-                    KeyCode::Char(' ') => {
+                    KeyCode::Enter | KeyCode::Char(' ') => {
                         // User pressed Enter or Space to select
                         match self.selected_fight_option {
                             FightOption::Attack => self.logic_attack(),
@@ -629,6 +749,36 @@ impl App {
                 },
 
                 GameState::Shop => match key.code {
+                    KeyCode::Left => {
+                        self.selected_shop_option = match self.selected_shop_option {
+                            ShopOption::Buy => ShopOption::Exit, // Loop from Attack to Run
+                            ShopOption::Sell => ShopOption::Buy,
+                            ShopOption::Inventory => ShopOption::Sell,
+                            ShopOption::Exit => ShopOption::Inventory,
+                        };
+                    }
+                    KeyCode::Right => {
+                        self.selected_shop_option = match self.selected_shop_option {
+                            ShopOption::Buy => ShopOption::Sell, // Loop from Attack to Run
+                            ShopOption::Sell => ShopOption::Inventory,
+                            ShopOption::Inventory => ShopOption::Exit,
+                            ShopOption::Exit => ShopOption::Buy,
+                        };
+                    }
+                    KeyCode::Enter | KeyCode::Char(' ') => {
+                        // User pressed Enter or Space to select
+                        match self.selected_shop_option {
+                            ShopOption::Buy => self.logic_buy(),
+                            ShopOption::Sell => self.logic_sell(),
+                            ShopOption::Inventory => self.game_state = GameState::Inventory,
+                            ShopOption::Exit => {
+                                // Implement run logic
+                                // For now, just go back to story. You might add a success/fail chance.
+                                self.logic_quit();
+                            }
+                        }
+                    }
+
                     KeyCode::Char('M') => self.game_state = GameState::MainMenu,
                     KeyCode::Enter => self.logic_shop(),
 
@@ -662,6 +812,10 @@ impl App {
     fn logic_montante(&mut self) {}
 
     fn logic_minigame(&mut self) {}
+
+    fn logic_buy(&mut self) {}
+
+    fn logic_sell(&mut self) {}
 
     fn logic_game_over(&mut self) {
         self.running = false;
