@@ -17,9 +17,15 @@ use ratatui::{
 };
 #[allow(unused)]
 use ratatui::{style::palette::material::GRAY, symbols::border};
+#[allow(unused)]
+use serde::{Deserialize, Serialize}; // Import Serialize and Deserialize
 use std::cmp::Ordering;
 #[allow(unused)]
-use std::time::{Duration, Instant}; // Import Instant and Duration
+use std::fs; // Import file system module for saving/loading
+#[allow(unused)]
+use std::io;
+#[allow(unused)]
+use std::time::{Duration, Instant}; // Import io module for file operations
 
 fn main() -> color_eyre::Result<()> {
     color_eyre::install()?;
@@ -29,12 +35,12 @@ fn main() -> color_eyre::Result<()> {
     result
 }
 
-#[derive(Debug, Default, PartialEq, Eq)]
+#[derive(Debug, Default, PartialEq, Eq, Clone, Copy)]
 pub enum GameState {
     #[default]
     MainMenu,
     Story,
-    Fight,
+    // Fight, // Renamed to Battle
     Minigame,
     GameOver,
     Heal,
@@ -42,7 +48,7 @@ pub enum GameState {
     Inventory,
     Test,
     Mercy,
-    Battle,
+    Battle, // New name for Fight
 }
 
 #[derive(Debug, Default, PartialEq, Eq, Clone, Copy)]
@@ -87,10 +93,12 @@ pub enum StoryState {
 }
 
 /// The main application which holds the state and logic of the application.
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)] // Add Clone derive to App
 pub struct App {
     /// Is the application running?
     running: bool,
+    pub previous_game_state: Option<GameState>,
+    pub saved_state_before_inventory: Option<Box<App>>, // Use Box<App> to avoid recursive type issues
     pub game_state: GameState,
     pub story_state: StoryState,
     pub counter: u32,
@@ -112,7 +120,8 @@ pub struct App {
     pub enemy_dmg: f64,
     pub enemy_strength_factor: f64,
     pub enemy_heal: f64,
-    pub enemy_is_alive: bool, // <--- NEW FIELD
+    pub enemy_is_alive: bool,
+    pub mercy_outcome: Option<bool>, // true for success, false for failure
 }
 
 #[allow(deprecated)]
@@ -135,6 +144,8 @@ impl App {
             enemy_strength: 1.1,
             enemy_dmg: 10.0,
             enemy_heal: 15.0,
+            saved_state_before_inventory: None, // Initialize the new field
+            mercy_outcome: None,                // Initialize new field
 
             ..Self::default()
         }
@@ -165,7 +176,7 @@ impl App {
         match self.game_state {
             GameState::MainMenu => self.render_main_menu(frame),
             GameState::Story => self.render_story(frame),
-            GameState::Fight => self.render_fight(frame),
+            // GameState::Fight => self.render_fight(frame), // Removed
             GameState::Minigame => self.render_minigame(frame),
             GameState::GameOver => self.render_game_over(frame),
             GameState::Heal => self.render_heal(frame),
@@ -196,8 +207,8 @@ impl App {
         let enemy_title = Line::from("Battaglia Imminente!").bold().red().centered();
         let enemy_text = format!(
             "Un Brigante selvaggio appare! \n\n\
-                Salute del Brigante: {:.0}\n\n\
-                La tua salute: {:.0}",
+                    Salute del Brigante: {:.0}\n\n\
+                    La tua salute: {:.0}",
             self.enemy_health, self.player_health
         );
         frame.render_widget(
@@ -209,13 +220,13 @@ impl App {
 
         // let attack_text = "hi".to_string();
         // let option_chunks = Layout::default()
-        //     .direction(Direction::Horizontal)
-        //     .constraints([
-        //         Constraint::Percentage(33),
-        //         Constraint::Percentage(33),
-        //         Constraint::Percentage(34),
-        //     ])
-        //     .split(frame.area());
+        //    .direction(Direction::Horizontal)
+        //    .constraints([
+        //        Constraint::Percentage(33),
+        //        Constraint::Percentage(33),
+        //        Constraint::Percentage(34),
+        //    ])
+        //    .split(frame.area());
 
         // Helper to get styled text based on selection
         let get_option_style = |option: FightOption, current_selection: FightOption| {
@@ -402,7 +413,7 @@ impl App {
             }
         }
         inventory_lines.push(Line::from("").white()); // Add an empty line for spacing
-        inventory_lines.push(Line::from("Press (M) to return to Main Menu.").dark_gray());
+        inventory_lines.push(Line::from("Press (B) to go Back.").dark_gray()); // Changed M to B for consistency
 
         let inventory_paragraph = Paragraph::new(inventory_lines)
             .block(inventory_block)
@@ -472,14 +483,15 @@ impl App {
         )
     }
 
-    fn render_fight(&mut self, frame: &mut Frame) {
-        let title = Line::from(format!(
-            " Hai deciso di combattere il boss! Cosa intendi fare?"
-        ))
-        .bold()
-        .blue()
-        .centered();
-    }
+    // Removed render_fight as it's now render_battle
+    // fn render_fight(&mut self, frame: &mut Frame) {
+    //     let title = Line::from(format!(
+    //         " Hai deciso di combattere il boss! Cosa intendi fare?"
+    //     ))
+    //     .bold()
+    //     .blue()
+    //     .centered();
+    // }
 
     fn render_shop(&mut self, frame: &mut Frame) {
         // Determine the shop name based on the player's current place
@@ -533,7 +545,7 @@ impl App {
 
         // ATTACK
         // ATTACK POPUP
-        let popup_area_attack = Rect::new(
+        let popup_area_buy = Rect::new(
             parent_area.x + parent_area.width / 4 - popup_width + 12 * popup_width / 40,
             parent_area.y + parent_area.height / 2 - popup_height + 14 * popup_height / 4,
             popup_width,
@@ -544,27 +556,27 @@ impl App {
             .centered();
         frame.render_widget(
             Paragraph::new(buy_text).block(Block::bordered()).centered(),
-            popup_area_attack,
+            popup_area_buy,
         );
 
         // DEFEND POPUP
-        let popup_area_defend = Rect::new(
-            parent_area.x + parent_area.width / 4 - popup_width + 4 * popup_width / 230 * 100,
+        let popup_area_sell = Rect::new(
+            parent_area.x + parent_area.width / 4 - popup_width + 4 * popup_width / 2,
             parent_area.y + parent_area.height / 2 - popup_height + 14 * popup_height / 4,
             popup_width,
             popup_height,
         );
-        let defend_text = Line::from("MENU")
+        let defend_sell = Line::from("VENDI")
             .style(get_option_style(
                 ShopOption::Sell,
                 self.selected_shop_option,
             ))
             .centered();
         frame.render_widget(
-            Paragraph::new(defend_text)
+            Paragraph::new(defend_sell)
                 .block(Block::bordered())
                 .centered(),
-            popup_area_defend,
+            popup_area_sell,
         );
 
         // INVENTORY POPUP (You had a commented out inventory render previously, so adapting this)
@@ -590,6 +602,13 @@ impl App {
             popup_area_inventory,
         );
 
+        let popup_area_exit = Rect::new(
+            parent_area.x + parent_area.width / 4 - popup_width + 20,
+            parent_area.y + parent_area.height / 2 - popup_height + 10,
+            popup_width,
+            popup_height,
+        );
+
         let exit_text = Line::from("ESCI")
             .style(get_option_style(
                 ShopOption::Exit,
@@ -600,24 +619,34 @@ impl App {
             Paragraph::new(exit_text)
                 .block(Block::bordered())
                 .centered(),
-            popup_area_defend,
+            popup_area_exit,
         );
     }
     fn render_mercy(&mut self, frame: &mut Frame) {
-        let title = Line::from(format!(" Hai ")).bold().blue().centered();
-        let text = "";
-        let text2 = "(E) Esci (C) Continua  ";
-        frame.render_widget(
-            Paragraph::new(text)
-                .block(Block::bordered().title(title))
-                .centered(),
-            frame.area(),
-        );
+        let title_text = match self.mercy_outcome {
+            Some(true) => Line::from("Pietà Accettata!").bold().green().centered(),
+            Some(false) => Line::from("Pietà Rifiutata!").bold().red().centered(),
+            None => Line::from("Tenta la Pietà...").bold().blue().centered(), // Initial state
+        };
 
-        frame.render_widget(
-            Paragraph::new(text2).block(Block::bordered()).centered(),
-            frame.area(),
-        );
+        let message_text = match self.mercy_outcome {
+            Some(true) => {
+                Line::from("Il brigante si ritira. La battaglia è terminata pacificamente.").white()
+            }
+            Some(false) => {
+                Line::from("Il brigante rifiuta la tua pietà! La battaglia continua.").white()
+            }
+            None => Line::from("Premi (Invio) per offrire pietà o (B) per tornare alla battaglia.")
+                .dark_gray(),
+        };
+
+        let mercy_block = Block::bordered().title(title_text);
+
+        let paragraph = Paragraph::new(message_text)
+            .block(mercy_block)
+            .alignment(Alignment::Center);
+
+        frame.render_widget(paragraph, frame.area());
     }
 
     /// Reads the crossterm events and updates the state of [`App`].
@@ -650,35 +679,38 @@ impl App {
                     // Travelling
                     //KeyCode::Char('V') => self.game_state = GameState::GameOver,
                     KeyCode::Char('H') => self.game_state = GameState::Heal,
-                    KeyCode::Char('I') => self.game_state = GameState::Inventory,
+                    KeyCode::Char('I') => {
+                        self.previous_game_state = Some(self.game_state); // Save current state
+                        self.game_state = GameState::Inventory;
+                    }
                     KeyCode::Char('W') => self.game_state = GameState::Shop,
 
                     _ => {}
                 },
 
-                GameState::Fight => match key.code {
-                    KeyCode::Left => {
-                        self.selected_fight_option = match self.selected_fight_option {
-                            FightOption::Attack => FightOption::Mercy, // Loop from Attack to Run
-                            FightOption::Defend => FightOption::Attack,
-                            FightOption::Inventory => FightOption::Defend,
-                            FightOption::Mercy => FightOption::Inventory,
-                        };
-                    }
-                    KeyCode::Right => {
-                        self.selected_fight_option = match self.selected_fight_option {
-                            FightOption::Attack => FightOption::Defend,
-                            FightOption::Defend => FightOption::Inventory,
-                            FightOption::Inventory => FightOption::Mercy,
-                            FightOption::Mercy => FightOption::Attack, // Loop from Run to Attack
-                        };
-                    }
-                    KeyCode::Char('G') => self.logic_hook(),
-                    KeyCode::Char('J') => self.logic_jab(),
-                    KeyCode::Char('M') => self.logic_montante(),
+                // GameState::Fight => match key.code { // Changed to GameState::Battle
+                //     KeyCode::Left => {
+                //         self.selected_fight_option = match self.selected_fight_option {
+                //             FightOption::Attack => FightOption::Mercy, // Loop from Attack to Run
+                //             FightOption::Defend => FightOption::Attack,
+                //             FightOption::Inventory => FightOption::Defend,
+                //             FightOption::Mercy => FightOption::Inventory,
+                //         };
+                //     }
+                //     KeyCode::Right => {
+                //         self.selected_fight_option = match self.selected_fight_option {
+                //             FightOption::Attack => FightOption::Defend,
+                //             FightOption::Defend => FightOption::Inventory,
+                //             FightOption::Inventory => FightOption::Mercy,
+                //             FightOption::Mercy => FightOption::Attack, // Loop from Run to Attack
+                //         };
+                //     }
+                //     KeyCode::Char('G') => self.logic_hook(),
+                //     KeyCode::Char('J') => self.logic_jab(),
+                //     KeyCode::Char('M') => self.logic_montante(),
 
-                    _ => {}
-                },
+                //     _ => {}
+                // },
                 // Making the values for Story
                 GameState::Story => match key.code {
                     KeyCode::Char('H') => self.game_state = GameState::Heal,
@@ -715,10 +747,14 @@ impl App {
                         match self.selected_fight_option {
                             FightOption::Attack => self.logic_attack(),
                             FightOption::Defend => self.logic_defend(),
-                            FightOption::Inventory => self.game_state = GameState::Inventory,
+                            FightOption::Inventory => {
+                                self.previous_game_state = Some(self.game_state); // Save current state
+                                self.game_state = GameState::Inventory
+                            }
                             FightOption::Mercy => {
                                 // Implement run logic
                                 // For now, just go back to story. You might add a success/fail chance.
+                                self.game_state = GameState::Mercy; // Go to Mercy state to display outcome
                                 self.logic_mercy();
                             }
                         }
@@ -727,14 +763,27 @@ impl App {
                     _ => {}
                 },
                 GameState::Minigame => match key.code {
-                    KeyCode::Char('M') => self.game_state = GameState::MainMenu,
+                    KeyCode::Char('M') | KeyCode::Char('m') => {
+                        self.game_state = GameState::MainMenu
+                    }
 
                     _ => {}
                 },
 
                 GameState::Mercy => match key.code {
-                    KeyCode::Char('G') => self.logic_mercy(),
-
+                    KeyCode::Enter | KeyCode::Char(' ') => {
+                        // If mercy was successful, go to Story, otherwise return to Battle
+                        match self.mercy_outcome {
+                            Some(true) => self.game_state = GameState::Story,
+                            Some(false) => self.game_state = GameState::Battle,
+                            None => {} // Should not happen, but no action if outcome not determined
+                        }
+                        self.mercy_outcome = None; // Reset mercy outcome after action
+                    }
+                    KeyCode::Char('B') | KeyCode::Char('b') => {
+                        self.game_state = GameState::Battle;
+                        self.mercy_outcome = None; // Reset mercy outcome if returning to battle
+                    }
                     _ => {}
                 },
 
@@ -744,7 +793,9 @@ impl App {
                 },
 
                 GameState::Heal => match key.code {
-                    KeyCode::Char('M') => self.game_state = GameState::MainMenu,
+                    KeyCode::Char('M') | KeyCode::Char('m') => {
+                        self.game_state = GameState::MainMenu
+                    }
                     _ => {}
                 },
 
@@ -770,38 +821,67 @@ impl App {
                         match self.selected_shop_option {
                             ShopOption::Buy => self.logic_buy(),
                             ShopOption::Sell => self.logic_sell(),
-                            ShopOption::Inventory => self.game_state = GameState::Inventory,
-                            ShopOption::Exit => {
-                                // Implement run logic
-                                // For now, just go back to story. You might add a success/fail chance.
-                                self.logic_quit();
+                            ShopOption::Inventory => {
+                                self.previous_game_state = Some(self.game_state); // Save current state
+                                self.game_state = GameState::Inventory
                             }
+                            ShopOption::Exit => self.logic_quit(),
                         }
                     }
-
-                    KeyCode::Char('M') => self.game_state = GameState::MainMenu,
-                    KeyCode::Enter => self.logic_shop(),
+                    KeyCode::Char('M') | KeyCode::Char('m') => {
+                        self.game_state = GameState::MainMenu
+                    }
 
                     _ => {}
                 },
 
                 GameState::Inventory => match key.code {
-                    KeyCode::Up => self.game_state = GameState::Fight,
+                    KeyCode::Char('B') | KeyCode::Char('b') => {
+                        // Restore the previous game state if available, otherwise go to MainMenu
+                        if let Some(prev_state) = self.previous_game_state.take() {
+                            self.game_state = prev_state;
+                        } else {
+                            self.game_state = GameState::MainMenu;
+                        }
+                    }
                     _ => {}
                 },
             },
         }
     }
 
-    fn logic_attack(&mut self) {}
+    fn logic_attack(&mut self) {
+        // Example attack logic: Player attacks enemy
+        self.enemy_health -= self.player_dmg;
+        if self.enemy_health <= 0.0 {
+            self.enemy_is_alive = false;
+            // Transition to a victory state or back to story/main menu
+            self.game_state = GameState::Story; // Example: go back to story after defeating enemy
+        } else {
+            // Enemy attacks back
+            self.player_health -= self.enemy_dmg;
+            if self.player_health <= 0.0 {
+                self.game_state = GameState::GameOver;
+            }
+        }
+    }
 
-    fn logic_defend(&mut self) {}
+    fn logic_defend(&mut self) {
+        // Example defend logic: Reduce incoming damage for one turn
+        // This is a simplified example. You might want to implement a temporary defense boost.
+        // For now, let's just say defending passes a turn.
+        self.player_health -= self.enemy_dmg * 0.5; // Example: 50% damage reduction when defending
+        if self.player_health <= 0.0 {
+            self.game_state = GameState::GameOver;
+        }
+    }
 
     fn logic_heal(&mut self) {}
 
     fn logic_story(&mut self) {}
 
-    fn logic_fight(&mut self) {}
+    // Removed logic_fight as it's now logic_battle
+    // fn logic_fight(&mut self) {}
 
     fn logic_hook(&mut self) {}
 
@@ -813,9 +893,16 @@ impl App {
 
     fn logic_minigame(&mut self) {}
 
-    fn logic_buy(&mut self) {}
+    fn logic_buy(&mut self) {
+        self.player_inventory
+            .push("Pozione della Salute".to_string());
+    }
 
-    fn logic_sell(&mut self) {}
+    fn logic_sell(&mut self) {
+        if !self.player_inventory.is_empty() {
+            self.player_inventory.pop(); // Remove the last item as a simple example
+        }
+    }
 
     fn logic_game_over(&mut self) {
         self.running = false;
@@ -825,14 +912,12 @@ impl App {
 
     fn logic_mercy(&mut self) {
         let secret_number: i32 = rand::thread_rng().gen_range(1..=10);
+        let player_mercy_chance: i32 = 7; // This could be based on player stats or charisma
 
-        let five: i32 = 7;
+        self.mercy_outcome = Some(player_mercy_chance >= secret_number);
 
-        match five.cmp(&secret_number) {
-            Ordering::Less => self.game_state = GameState::GameOver,
-            Ordering::Greater => self.game_state = GameState::Fight,
-            Ordering::Equal => self.game_state = GameState::Story,
-        }
+        // The state transition will now happen in `on_key_event` after the user acknowledges the outcome
+        // No direct state change here, just set the outcome.
     }
 
     fn logic_quit(&mut self) {
